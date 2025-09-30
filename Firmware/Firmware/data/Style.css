@@ -1,0 +1,181 @@
+/* ===== VARIABLES ===== */
+:root{
+  --bg:#f6f8fb;
+  --card:#ffffff;
+  --text:#0f172a;
+  --muted:#6b7280;
+  --border:#e5e7eb;
+  --primary:#2563eb;
+  --primary-pressed:#1d4ed8;
+  --acc-temp:#f97316;   /* naranja */
+  --acc-gas:#ef4444;    /* rojo */
+  --acc-water:#06b6d4;  /* cian */
+  --acc-motion:#22c55e; /* verde */
+  --shadow:0 8px 24px rgba(2,6,23,.08);
+}
+
+html[data-theme="dark"]{
+  --bg:#0b0d10;
+  --card:#12161c;
+  --text:#e5e7eb;
+  --muted:#9aa3b2;
+  --border:#263041;
+  --primary:#60a5fa;
+  --primary-pressed:#3b82f6;
+  --shadow:0 10px 28px rgba(0,0,0,.5);
+}
+
+/* ===== RESET ===== */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial;
+  color:var(--text);
+  background:
+    radial-gradient(1200px 700px at 10% -10%, rgba(99,102,241,0.08), transparent 50%),
+    radial-gradient(1000px 600px at 110% -20%, rgba(59,130,246,0.08), transparent 50%),
+    var(--bg);
+  display:flex;flex-direction:column;
+}
+
+/* ===== NAVBAR ===== */
+.navbar{
+  position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;background:var(--card);
+  border-bottom:1px solid var(--border);
+  box-shadow:0 2px 12px rgba(0,0,0,.06);
+}
+.brand{font-weight:700}
+.nav-right{display:flex;gap:8px;align-items:center}
+.navbtn{
+  border:1px solid var(--border);background:var(--card);color:var(--text);
+  padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600;
+}
+.navbtn:hover{background:rgba(0,0,0,.04)}
+.theme-toggle{
+  appearance:none;border:1px solid var(--border);border-radius:10px;
+  background:transparent;color:var(--text);padding:8px 10px;cursor:pointer;
+}
+.theme-toggle:hover{background:var(--primary);color:#fff}
+
+/* ===== CONTAINER / TITLES ===== */
+.container{max-width:1100px;margin:0 auto;padding:20px 16px}
+h1{margin:0 0 6px 0;font-size:26px}
+.subtitle{margin:0 0 16px 0;color:var(--muted)}
+
+/* ===== SECTIONS ===== */
+.section{display:none}
+.section.active{display:block}
+
+/* ===== TILES (RESUMEN) ===== */
+.tiles{
+  margin-top:10px;
+  display:grid;gap:16px;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+}
+.tile{
+  background:var(--card);border:1px solid var(--border);border-radius:16px;
+  box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column
+}
+.tile-header{
+  display:flex;align-items:center;gap:10px;padding:12px 14px;
+  border-bottom:1px dashed var(--border);font-weight:600
+}
+.tile--temp .tile-header{border-left:6px solid var(--acc-temp)}
+.tile--gas .tile-header{border-left:6px solid var(--acc-gas)}
+.tile--water .tile-header{border-left:6px solid var(--acc-water)}
+.tile--motion .tile-header{border-left:6px solid var(--acc-motion)}
+.tile-icon{font-size:20px}
+.tile-title{opacity:.9}
+.tile-body{padding:14px;display:grid;gap:8px}
+.kv{display:flex;align-items:center;justify-content:space-between}
+.kv span{color:var(--muted)}
+.kv strong{font-size:20px}
+.tile-actions{padding:12px;display:flex;gap:8px;margin-top:auto}
+
+/* ===== MODULES (LISTA DE SIMULACIONES) ===== */
+.modules{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.module{
+  background:var(--card);border:1px solid var(--border);border-radius:16px;
+  box-shadow:var(--shadow);padding:16px
+}
+.module-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
+.module-icon{font-size:28px}
+.module h3{margin:0 0 4px 0}
+.module p{margin:0;color:var(--muted)}
+.module-actions{display:flex;gap:10px;margin-top:10px}
+
+/* ===== BUTTONS ===== */
+button{
+  appearance:none;border:1px solid transparent;border-radius:12px;
+  padding:10px 14px;font-weight:700;background:var(--primary);color:#fff;
+  cursor:pointer;transition:transform .03s ease, background .2s ease, box-shadow .2s ease;
+  box-shadow:0 6px 16px rgba(37,99,235,.25)
+}
+button:hover{background:var(--primary-pressed)}
+button:active{transform:translateY(1px)}
+button.ghost{
+  background:transparent;color:var(--text);border-color:var(--border);box-shadow:none
+}
+button.ghost:hover{background:rgba(0,0,0,.04)}
+html[data-theme="dark"] button.ghost:hover{background:rgba(255,255,255,.06)}
+
+/* ===== LED ===== */
+.led{
+  width:18px;height:18px;border-radius:50%;background:#3f3f46;border:2px solid #1f2937;
+  box-shadow:inset 0 0 6px rgba(0,0,0,.35);
+  transition:background .25s ease, box-shadow .25s ease
+}
+.led.on{background:#22c55e;box-shadow:0 0 10px #22c55e,inset 0 0 6px rgba(0,0,0,.35)}
+.tile-body .led{margin-top:8px}
+
+/* ===== SIM SECTIONS ===== */
+.sim-section .sim-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px
+}
+.sim-title{display:flex;align-items:center;gap:10px}
+.sim-title span{font-size:22px}
+.sim-body{padding:8px 0 12px}
+.readout{
+  font:600 22px/1.2 ui-sans-serif,system-ui;display:inline-block;padding:12px 14px;
+  border:1px solid var(--border);border-radius:12px;background:rgba(37,99,235,.06)
+}
+.readout-led{margin-top:12px;display:flex;align-items:center;gap:10px}
+.sim-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+
+/* ===== MODAL (GRÁFICA) ===== */
+.modal{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.55);z-index:50
+}
+.modal.hidden{display:none}
+.modal-card{
+  width:min(1100px,96vw);max-height:90vh;overflow:auto;background:var(--card);
+  border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow)
+}
+.modal-card--wide{width:min(1100px,98vw)}
+.modal-head{
+  display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg, rgba(37,99,235,.1), transparent)
+}
+.modal-title{display:flex;align-items:center;gap:10px}
+.modal-icon{font-size:22px}
+.btn-close{
+  border:1px solid var(--border);background:transparent;color:var(--text);border-radius:10px;
+  padding:6px 10px;cursor:pointer
+}
+.btn-close:hover{background:rgba(0,0,0,.06)}
+.modal-body{padding:18px}
+.modal-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;padding:0 18px 16px}
+
+/* ===== FOOTER ===== */
+.footer{
+  margin-top:auto;
+  padding:16px;text-align:center;color:var(--muted);border-top:1px solid var(--border);background:var(--card)
+}
+
+/* ===== UTILITY ===== */
+.hidden{display:none!important}

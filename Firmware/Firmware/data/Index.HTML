@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador IoT ESP32 - Tiempo Real</title>
+    <title>Visualizador IoT Domótica</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* Configuración de color principal y fuente */
         :root {
             --primary: #2563eb;
             --bg-light: #f6f8fb;
@@ -19,8 +18,10 @@
             --acc-gas: #ef4444;
             --acc-water: #06b6d4;
             --acc-motion: #22c55e;
+            --acc-rain: #3b82f6;
+            --acc-door: #a855f7;
+            --acc-tender: #14b8a6;
         }
-        /* Configuración del tema oscuro (Dark Mode) */
         .dark {
             --primary: #60a5fa;
             --bg-light: #0f172a;
@@ -28,7 +29,6 @@
             --text-light: #e2e8f0;
             --border-light: #334155;
         }
-        /* Estilos base */
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-light);
@@ -44,17 +44,21 @@
         }
         .hidden { display: none !important; }
         .led-indicator {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            border: 2px solid #94a3b8;
-            background-color: #475569;
+            width: 16px; height: 16px; border-radius: 50%;
+            border: 2px solid #94a3b8; background-color: #475569;
             transition: all 0.3s ease-in-out;
         }
         .led-indicator.on {
-            background-color: var(--acc-motion);
-            border-color: var(--acc-motion);
+            background-color: var(--acc-motion); border-color: var(--acc-motion);
             box-shadow: 0 0 10px var(--acc-motion), 0 0 20px rgba(34, 197, 94, 0.5);
+        }
+        .modal {
+            position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+            background: rgba(0, 0, 0, 0.5); z-index: 50;
+        }
+        .modal-content {
+            background-color: var(--card-light); padding: 2rem; border-radius: 1rem;
+            max-width: 400px; text-align: center;
         }
     </style>
 </head>
@@ -62,8 +66,8 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <header class="mb-8 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex justify-between items-center">
             <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
-                <i class="fa-solid fa-microchip text-indigo-600"></i>
-                Dashboard de Sensores
+                <i class="fa-solid fa-house-user text-indigo-600"></i>
+                Dashboard de Domótica
             </h1>
             <div class="flex items-center space-x-3">
                 <button id="themeToggle" class="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition">
@@ -75,12 +79,8 @@
 
         <div class="mb-8 p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg border-l-4 border-indigo-500">
             <h2 class="text-xl font-semibold mb-3 text-indigo-600 dark:text-indigo-400">Configuración de Conexión</h2>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Ingresa la URL de tu ESP32. Puede ser una IP local (ej: <code class="bg-gray-100 dark:bg-gray-700 p-1 rounded">http://192.168.1.10</code>) o el nombre de host mDNS (ej: <code class="bg-gray-100 dark:bg-gray-700 p-1 rounded">http://esp32-sensor.local</code>).
-                <strong class="text-red-500 block mt-2">Nota: Para acceso global/remoto, se necesita una VPN, un servicio de túnel (como ngrok) o configurar el 'Port Forwarding' en tu router.</strong>
-            </p>
             <div class="flex flex-col sm:flex-row gap-4">
-                <input type="url" id="apiBaseUrl" value="http://esp32-sensor.local" placeholder="URL Base de la API (ej: http://esp32-sensor.local)"
+                <input type="url" id="apiBaseUrl" value="http://domotica-esp32.local" placeholder="URL Base de la API"
                        class="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                 <button id="connectBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-150">
                     <i class="fa-solid fa-plug"></i> Conectar
@@ -91,45 +91,58 @@
 
         <div id="resumen-section" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
             
-            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-orange-500" data-sensor="dht-temp">
+            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-orange-500" data-sensor="dht-temp-hum">
                 <i class="fa-solid fa-temperature-three-quarters text-3xl mb-3" style="color: var(--acc-temp);"></i>
-                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Temperatura</h3>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Temperatura/Humedad</h3>
                 <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-temp">-- °C</span>
+                <span class="text-xl font-bold mt-1 text-gray-500 dark:text-gray-400" id="tile-hum">-- %</span>
             </div>
 
-            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-blue-400" data-sensor="dht-hum">
-                <i class="fa-solid fa-droplet text-3xl mb-3" style="color: var(--acc-water);"></i>
-                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Humedad</h3>
-                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-hum">-- %</span>
+            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-blue-400" data-sensor="rain">
+                <i class="fa-solid fa-cloud-showers-heavy text-3xl mb-3" style="color: var(--acc-rain);"></i>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Lluvia</h3>
+                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-rain">Sin datos</span>
             </div>
 
             <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-red-500" data-sensor="gas">
                 <i class="fa-solid fa-cloud text-3xl mb-3" style="color: var(--acc-gas);"></i>
-                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Gas (CO/Metano)</h3>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Gas (MQ135)</h3>
                 <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-gas">-- ppm</span>
-            </div>
-
-            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-cyan-500" data-sensor="water">
-                <i class="fa-solid fa-water text-3xl mb-3" style="color: var(--acc-water);"></i>
-                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Nivel de Agua</h3>
-                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-water">-- %</span>
             </div>
 
             <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center cursor-pointer border-t-4 border-green-500" data-sensor="motion">
                 <i class="fa-solid fa-person-running text-3xl mb-3" style="color: var(--acc-motion);"></i>
                 <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Movimiento (PIR)</h3>
-                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-motion">Sin datos</span>
+                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-motion">Sin detección</span>
             </div>
 
-            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center justify-center border-t-4 border-indigo-500 cursor-pointer" id="tile-led-control">
+            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center justify-center border-t-4 border-indigo-500 cursor-pointer" data-actuator="led">
                 <i class="fa-solid fa-lightbulb text-3xl mb-3 text-indigo-500"></i>
                 <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Actuador LED</h3>
                 <div class="flex items-center gap-3 mt-2">
                     <div id="ledIndicator" class="led-indicator"></div>
                     <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" id="tile-led">APAGADO</span>
                 </div>
-                <button id="toggleLedBtn" data-state="off" class="mt-4 text-sm font-semibold py-2 px-4 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition duration-150">
+                <button id="toggleLedBtn" data-state="off" data-confirm="true" class="mt-4 text-sm font-semibold py-2 px-4 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition duration-150">
                     Encender
+                </button>
+            </div>
+            
+            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center justify-center border-t-4 border-purple-500 cursor-pointer" data-actuator="door">
+                <i class="fa-solid fa-door-open text-3xl mb-3" style="color: var(--acc-door);"></i>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Puerta</h3>
+                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-door">CERRADA</span>
+                <button id="toggleDoorBtn" data-state="off" data-confirm="true" class="mt-4 text-sm font-semibold py-2 px-4 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition duration-150">
+                    Abrir
+                </button>
+            </div>
+
+            <div class="tile bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col items-center justify-center border-t-4 border-teal-500 cursor-pointer" data-actuator="tender">
+                <i class="fa-solid fa-shirt text-3xl mb-3" style="color: var(--acc-tender);"></i>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Tendedero</h3>
+                <span class="text-3xl font-bold mt-2 text-gray-900 dark:text-gray-100" id="tile-tender">RETRAÍDO</span>
+                <button id="toggleTenderBtn" data-state="off" data-confirm="true" class="mt-4 text-sm font-semibold py-2 px-4 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition duration-150">
+                    Extender
                 </button>
             </div>
         </div>
@@ -145,305 +158,25 @@
                 <canvas id="chartCanvas"></canvas>
             </div>
         </div>
-
     </div>
 
-    <script>
-        const htmlEl = document.documentElement;
-        const themeToggle = document.getElementById('themeToggle');
-        const apiBaseUrlInput = document.getElementById('apiBaseUrl');
-        const connectBtn = document.getElementById('connectBtn');
-        const statusMessageEl = document.getElementById('statusMessage');
-        const toggleLedBtn = document.getElementById('toggleLedBtn');
-        const ledIndicatorEl = document.getElementById('ledIndicator');
-        const tileTemp = document.getElementById('tile-temp');
-        const tileHum = document.getElementById('tile-hum');
-        const tileGas = document.getElementById('tile-gas');
-        const tileWater = document.getElementById('tile-water');
-        const tileMotion = document.getElementById('tile-motion');
-        const tileLed = document.getElementById('tile-led');
-        const chartSection = document.getElementById('chart-section');
-        const chartCanvas = document.getElementById('chartCanvas');
-        const chartTitleEl = document.getElementById('chartTitle');
-        let chartInstance = null;
-        let fetchInterval = null;
-        const MAX_POINTS = 50;
-        let currentSensorKey = null;
+    <div id="confirmModal" class="modal hidden">
+        <div class="modal-content">
+            <h3 class="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">¿Estás seguro?</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-6" id="modal-message">
+                Esta acción no se puede deshacer.
+            </p>
+            <div class="flex justify-center gap-4">
+                <button id="confirmCancelBtn" class="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg">
+                    Cancelar
+                </button>
+                <button id="confirmOkBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg">
+                    Continuar
+                </button>
+            </div>
+        </div>
+    </div>
 
-        const store = {
-            'dht-temp': { label: "Temperatura (°C)", data: [], units: ' °C', borderColor: 'var(--acc-temp)', backgroundColor: 'rgba(249, 115, 22, 0.1)' },
-            'dht-hum': { label: "Humedad (%)", data: [], units: ' %', borderColor: 'var(--acc-water)', backgroundColor: 'rgba(6, 182, 212, 0.1)' },
-            'gas': { label: "Gas (ppm)", data: [], units: ' ppm', borderColor: 'var(--acc-gas)', backgroundColor: 'rgba(239, 68, 68, 0.1)' },
-            'water': { label: "Nivel de Agua (%)", data: [], units: ' %', borderColor: 'var(--acc-water)', backgroundColor: 'rgba(6, 182, 212, 0.1)' },
-            'motion': { label: "Movimiento (0/1)", data: [], units: '', borderColor: 'var(--acc-motion)', backgroundColor: 'rgba(34, 197, 94, 0.1)', stepped: true },
-        };
-
-        function saveApiUrl() {
-            localStorage.setItem('apiBaseUrl', apiBaseUrlInput.value.trim());
-        }
-
-        async function fetchRealData() {
-            const apiBase = apiBaseUrlInput.value.trim();
-            if (!apiBase) {
-                updateStatus('URL de API no configurada.', 'text-red-600 dark:text-red-400');
-                return;
-            }
-
-            try {
-                const url = `${apiBase.replace(/\/$/, '')}/data`;
-                const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
-                updateDashboard(data);
-                appendDataToStore(data);
-                if (chartInstance) {
-                    liveAppendToChart(data);
-                }
-                updateStatus(`Conectado. Última actualización: ${formatTime(new Date())}`, 'text-green-600 dark:text-green-400');
-            } catch (error) {
-                console.error("Error al obtener datos:", error);
-                updateStatus('Fallo de conexión. Revisa la URL y el ESP32.', 'text-red-600 dark:text-red-400');
-            }
-        }
-        
-        async function toggleLedState() {
-            const currentState = toggleLedBtn.dataset.state === 'on';
-            const newState = !currentState;
-            const apiBase = apiBaseUrlInput.value.trim();
-            const action = newState ? 'on' : 'off';
-            if (!apiBase) {
-                alert('Conéctate a la API antes de controlar el LED.');
-                return;
-            }
-            try {
-                toggleLedBtn.disabled = true;
-                const url = `${apiBase.replace(/\/$/, '')}/led?state=${action}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    signal: AbortSignal.timeout(5000)
-                });
-                if (!response.ok) {
-                    throw new Error(`Error al cambiar el estado: ${response.status}`);
-                }
-                const result = await response.json();
-                updateLedDisplay(result.led_state);
-                toggleLedBtn.disabled = false;
-            } catch (error) {
-                console.error("Error al controlar LED:", error);
-                alert(`Error al intentar ${action === 'on' ? 'encender' : 'apagar'} el LED.`);
-                toggleLedBtn.disabled = false;
-            }
-        }
-
-        function updateDashboard(data) {
-            tileTemp.textContent = `${data.temp !== undefined ? data.temp.toFixed(1) : '--'} °C`;
-            tileHum.textContent = `${data.hum !== undefined ? data.hum.toFixed(0) : '--'} %`;
-            tileGas.textContent = `${data.gas !== undefined ? data.gas.toFixed(0) : '--'} ppm`;
-            tileWater.textContent = `${data.water !== undefined ? data.water.toFixed(0) : '--'} %`;
-            const motionStatus = data.motion ? '¡DETECTADO!' : 'Sin detección';
-            tileMotion.textContent = motionStatus;
-            updateLedDisplay(data.led);
-        }
-        
-        function updateLedDisplay(ledState) {
-            const state = ledState ? 'on' : 'off';
-            ledIndicatorEl.classList.toggle('on', ledState);
-            tileLed.textContent = ledState ? 'ENCENDIDO' : 'APAGADO';
-            toggleLedBtn.textContent = ledState ? 'Apagar' : 'Encender';
-            toggleLedBtn.dataset.state = state;
-            
-            if (ledState) {
-                 toggleLedBtn.classList.remove('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
-                 toggleLedBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
-            } else {
-                 toggleLedBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'text-white');
-                 toggleLedBtn.classList.add('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
-            }
-        }
-
-        function updateStatus(message, className) {
-            statusMessageEl.className = `mt-3 text-sm font-medium ${className}`;
-            statusMessageEl.textContent = message;
-        }
-
-        function appendDataToStore(data) {
-            const now = new Date();
-            pushData('dht-temp', { time: now, value: data.temp });
-            pushData('dht-hum', { time: now, value: data.hum });
-            pushData('gas', { time: now, value: data.gas });
-            pushData('water', { time: now, value: data.water });
-            pushData('motion', { time: now, value: data.motion ? 1 : 0 });
-        }
-
-        function pushData(key, data) {
-            const list = store[key].data;
-            list.push(data);
-            if (list.length > MAX_POINTS) {
-                list.shift();
-            }
-        }
-        
-        function getChartConfig(sensorKey) {
-            const isDht = sensorKey.startsWith('dht');
-            if (isDht) {
-                return {
-                    datasets: [
-                        { ...store['dht-temp'], data: store['dht-temp'].data.map(d => d.value), yAxisID: 'yTemp' },
-                        { ...store['dht-hum'], data: store['dht-hum'].data.map(d => d.value), yAxisID: 'yHum' }
-                    ],
-                    labels: store['dht-temp'].data.map(d => formatTime(d.time))
-                };
-            }
-            const sensorData = store[sensorKey];
-            return {
-                datasets: [{
-                    label: sensorData.label,
-                    data: sensorData.data.map(d => d.value),
-                    borderColor: sensorData.borderColor,
-                    backgroundColor: sensorData.backgroundColor,
-                    stepped: sensorData.stepped || false,
-                    tension: sensorData.stepped ? 0 : 0.25,
-                    borderWidth: 2,
-                    fill: true
-                }],
-                labels: sensorData.data.map(d => formatTime(d.time))
-            };
-        }
-        
-        function openChart(sensorKey) {
-            currentSensorKey = sensorKey;
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
-            const config = getChartConfig(sensorKey);
-            if (sensorKey.startsWith('dht')) {
-                 chartTitleEl.textContent = 'Gráfica de Temperatura y Humedad en Tiempo Real';
-            } else {
-                 chartTitleEl.textContent = `Gráfica de ${store[sensorKey].label} en Tiempo Real`;
-            }
-            const scalesConfig = sensorKey.startsWith('dht') ? {
-                yTemp: { 
-                    type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)', color: 'var(--acc-temp)' },
-                    min: 10, max: 40, ticks: { color: 'var(--acc-temp)' }
-                },
-                yHum: { 
-                    type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)', color: 'var(--acc-water)' },
-                    min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: 'var(--acc-water)' }
-                }
-            } : {
-                y: { beginAtZero: true, title: { display: true, text: store[sensorKey].label.split('(')[0].trim() } }
-            };
-            chartInstance = new Chart(chartCanvas, {
-                type: 'line', data: {
-                    labels: config.labels,
-                    datasets: config.datasets.map(ds => ({
-                        ...ds, pointBackgroundColor: ds.borderColor, pointBorderColor: '#fff', pointBorderWidth: 2,
-                    }))
-                }, options: {
-                    responsive: true, maintainAspectRatio: false, animation: false,
-                    plugins: { legend: { position: 'top' } },
-                    scales: {
-                        x: { ticks: { autoSkip: true, maxTicksLimit: 10 }, title: { display: true, text: "Tiempo" } },
-                        ...scalesConfig
-                    },
-                    color: (context) => htmlEl.classList.contains('dark') ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)'
-                }
-            });
-            chartSection.classList.remove('hidden');
-            setTimeout(() => chartInstance.resize(), 100);
-        }
-
-        function closeChart() {
-            if (chartInstance) {
-                chartInstance.destroy();
-                chartInstance = null;
-            }
-            currentSensorKey = null;
-            chartSection.classList.add('hidden');
-        }
-
-        function liveAppendToChart(data) {
-            if (!chartInstance || !currentSensorKey) return;
-            const now = new Date();
-            const label = formatTime(now);
-            if (chartInstance.data.labels.length >= MAX_POINTS) {
-                chartInstance.data.labels.shift();
-                chartInstance.data.datasets.forEach(ds => ds.data.shift());
-            }
-            chartInstance.data.labels.push(label);
-            if (currentSensorKey.startsWith('dht')) {
-                chartInstance.data.datasets[0].data.push(data.temp);
-                chartInstance.data.datasets[1].data.push(data.hum);
-            } else if (currentSensorKey === 'gas') {
-                chartInstance.data.datasets[0].data.push(data.gas);
-            } else if (currentSensorKey === 'water') {
-                chartInstance.data.datasets[0].data.push(data.water);
-            } else if (currentSensorKey === 'motion') {
-                chartInstance.data.datasets[0].data.push(data.motion ? 1 : 0);
-            }
-            chartInstance.update('none');
-        }
-
-        function formatTime(t) {
-            const d = (t instanceof Date) ? t : new Date(t);
-            return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        }
-        
-        function startFetching() {
-             if (fetchInterval) clearInterval(fetchInterval);
-             fetchInterval = setInterval(fetchRealData, 4000);
-             fetchRealData();
-        }
-        
-        function stopFetching() {
-            if (fetchInterval) {
-                clearInterval(fetchInterval);
-                fetchInterval = null;
-            }
-            updateStatus('Desconectado. Pulsa Conectar para reanudar.', 'text-gray-500 dark:text-gray-400');
-        }
-
-        connectBtn.addEventListener('click', () => {
-            saveApiUrl();
-            startFetching();
-        });
-
-        toggleLedBtn.addEventListener('click', toggleLedState);
-        document.getElementById('closeChartBtn').addEventListener('click', closeChart);
-        document.querySelectorAll('[data-sensor]').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const sensorKey = e.currentTarget.dataset.sensor;
-                if (currentSensorKey === sensorKey) {
-                    closeChart();
-                } else {
-                    openChart(sensorKey);
-                }
-            });
-        });
-
-        themeToggle.addEventListener('click', () => {
-            htmlEl.classList.toggle('dark');
-            localStorage.setItem('theme', htmlEl.classList.contains('dark') ? 'dark' : 'light');
-        });
-        
-        window.onload = function() {
-            const savedUrl = localStorage.getItem('apiBaseUrl');
-            if (savedUrl) {
-                apiBaseUrlInput.value = savedUrl;
-            }
-            const savedTheme = localStorage.getItem('theme');
-            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                htmlEl.classList.add('dark');
-            } else {
-                htmlEl.classList.remove('dark');
-            }
-            if (apiBaseUrlInput.value.trim()) {
-                startFetching();
-            }
-        };
-    </script>
+    <script src="Script.JS"></script>
 </body>
 </html>

@@ -1,303 +1,420 @@
-// ======== ESTADO Y CONFIG =========
-const html = document.documentElement;
-const themeBtn = document.getElementById("themeBtn");
-const sectionEls = document.querySelectorAll(".section");
-const navBtns = document.querySelectorAll(".navbtn");
+const htmlEl = document.documentElement;
+const themeToggle = document.getElementById('themeToggle');
+const apiBaseUrlInput = document.getElementById('apiBaseUrl');
+const connectBtn = document.getElementById('connectBtn');
+const statusMessageEl = document.getElementById('statusMessage');
 
-// Resumen tiles
-const tTemp = document.getElementById("tile-temp");
-const tHum = document.getElementById("tile-hum");
-const tGas = document.getElementById("tile-gas");
-const tWater = document.getElementById("tile-water");
-const tMotion = document.getElementById("tile-motion");
-const tLed = document.getElementById("tile-led");
+// Elementos del dashboard
+const tileTemp = document.getElementById('tile-temp');
+const tileHum = document.getElementById('tile-hum');
+const tileRain = document.getElementById('tile-rain');
+const tileGas = document.getElementById('tile-gas');
+const tileMotion = document.getElementById('tile-motion');
+const ledIndicatorEl = document.getElementById('ledIndicator');
+const tileLed = document.getElementById('tile-led');
+const tileDoor = document.getElementById('tile-door');
+const tileTender = document.getElementById('tile-tender');
 
-// Sim sections readouts / leds
-const simReadouts = {
-  dht: document.getElementById("sim-dht-readout"),
-  gas: document.getElementById("sim-gas-readout"),
-  water: document.getElementById("sim-water-readout"),
-  motion: document.getElementById("sim-motion-readout"),
-};
-const motionLed = document.getElementById("sim-motion-led");
-const motionLabel = document.getElementById("sim-motion-label");
+// Botones de control
+const toggleLedBtn = document.getElementById('toggleLedBtn');
+const toggleDoorBtn = document.getElementById('toggleDoorBtn');
+const toggleTenderBtn = document.getElementById('toggleTenderBtn');
 
-// Chart modal
-const chartModal = document.getElementById("chartModal");
-const chartTitle = document.getElementById("chartTitle");
-const chartCanvas = document.getElementById("chartCanvas");
-
-let currentSection = "resumen";
-let currentSensor = null;
-let simInterval = null;
-let chart = null;
+// Elementos de la gráfica
+const chartSection = document.getElementById('chart-section');
+const chartCanvas = document.getElementById('chartCanvas');
+const chartTitleEl = document.getElementById('chartTitle');
+const closeChartBtn = document.getElementById('closeChartBtn');
+let chartInstance = null;
+let fetchInterval = null;
 const MAX_POINTS = 50;
+let currentChartKey = null;
 
-// Almacén de datos
+// Modal de confirmación
+const confirmModal = document.getElementById('confirmModal');
+const confirmOkBtn = document.getElementById('confirmOkBtn');
+const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+
+// Almacén de datos para gráficas
 const store = {
-  dht: { label: "Temperatura / Humedad", icon: "🌡️", data: [] },
-  gas: { label: "Gas (ppm)", icon: "🧪", data: [] },
-  water: { label: "Agua (%)", icon: "💧", data: [] },
-  motion: { label: "Movimiento (0/1)", icon: "👤", data: [] },
+    'dht-temp-hum': {
+        labels: ["Temperatura (°C)", "Humedad (%)"],
+        units: [' °C', ' %'],
+        data: [],
+        colors: ['var(--acc-temp)', 'var(--acc-water)']
+    },
+    'rain': { label: "Lluvia", data: [], units: '', stepped: true, color: 'var(--acc-rain)' },
+    'gas': { label: "Gas (ppm)", data: [], units: ' ppm', color: 'var(--acc-gas)' },
+    'motion': { label: "Movimiento", data: [], units: '', stepped: true, color: 'var(--acc-motion)' },
+    'led': { label: "LED", data: [], units: '', stepped: true, color: 'var(--acc-motion)' },
+    'door': { label: "Puerta", data: [], units: '', stepped: true, color: 'var(--acc-door)' },
+    'tender': { label: "Tendedero", data: [], units: '', stepped: true, color: 'var(--acc-tender)' },
 };
 
-// ======== API ESP32 =========
-// ⚠️ CAMBIA ESTA IP POR LA DE TU ESP32
-const API_BASE = "http://192.168.0.15";
-
-// Obtener datos reales del PIR
-async function getRealSensorData() {
-  try {
-    const response = await fetch(API_BASE + "/data");
-    return await response.json();
-  } catch (err) {
-    console.error("Error al obtener datos reales:", err);
-    return { motion: false };
-  }
+function saveApiUrl() {
+    localStorage.setItem('apiBaseUrl', apiBaseUrlInput.value.trim());
 }
 
-// ======== NAVEGACIÓN DE SECCIONES =========
-function showSection(id) {
-  sectionEls.forEach(s => s.classList.remove("active"));
-  document.getElementById(id).classList.add("active");
-  currentSection = id;
-  if (!id.startsWith("sim-")) {
-    stopSim();
-  }
+// Función para obtener datos del ESP32
+async function fetchData() {
+    const apiBase = apiBaseUrlInput.value.trim();
+    if (!apiBase) {
+        updateStatus('URL de API no configurada.', 'text-red-600 dark:text-red-400');
+        return;
+    }
+
+    try {
+        const url = `${apiBase.replace(/\/$/, '')}/data`;
+        const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        updateDashboard(data);
+        appendDataToStore(data);
+        if (chartInstance) {
+            liveAppendToChart(data);
+        }
+        updateStatus(`Conectado. Última actualización: ${formatTime(new Date())}`, 'text-green-600 dark:text-green-400');
+    } catch (error) {
+        console.error("Error al obtener datos:", error);
+        updateStatus('Fallo de conexión. Revisa la URL y el ESP32.', 'text-red-600 dark:text-red-400');
+    }
 }
 
-navBtns.forEach(btn => {
-  btn.addEventListener("click", () => {
-    const id = btn.dataset.section;
-    showSection(id);
-  });
-});
-
-showSection("resumen"); // inicial
-
-// ======== EVENTOS GLOBALES =========
-document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-action]");
-  if (!el) return;
-  const action = el.dataset.action;
-  const sensor = el.dataset.sensor;
-  if (action === "open-sim" && sensor) {
-    openSimSection(sensor);
-  } else if (action === "open-chart" && sensor) {
-    openChart(sensor);
-  } else if (action === "go-back") {
-    stopSim();
-    showSection("simulaciones");
-  } else if (action === "close-chart") {
-    closeChart();
-  } else if (action === "download-chart") {
-    downloadChartPNG();
-  }
-});
-
-// ======== MOSTRAR SECCIÓN DE UN SENSOR =========
-function openSimSection(sensor) {
-  currentSensor = sensor;
-  stopSim(); // reset
-  const targetId = `sim-${sensor}`;
-  showSection(targetId);
+// Funciones de control de actuadores
+async function toggleLedState() {
+    const currentState = toggleLedBtn.dataset.state === 'on';
+    const newState = !currentState;
+    await sendActuatorCommand('led', `state=${newState ? 'on' : 'off'}`, newState);
 }
 
-// ======== ENLACES DE BOTONES DE CADA SIM ========
-bindSimButtons("dht");
-bindSimButtons("gas");
-bindSimButtons("water");
-bindSimButtons("motion");
-
-function bindSimButtons(key) {
-  document.getElementById(`sim-${key}-start`).addEventListener("click", () => startSim(key));
-  document.getElementById(`sim-${key}-stop`).addEventListener("click", stopSim);
-  document.getElementById(`sim-${key}-save`).addEventListener("click", () => saveJSON(key));
-  document.getElementById(`sim-${key}-clear`).addEventListener("click", () => clearData(key));
-  document.getElementById(`sim-${key}-chart`).addEventListener("click", () => openChart(key));
+async function toggleDoorState() {
+    const currentState = toggleDoorBtn.dataset.state === 'open';
+    const newState = !currentState;
+    await sendActuatorCommand('door', `state=${newState ? 'open' : 'close'}`, newState);
 }
 
-// ======== SIMULACIÓN =========
-function startSim(sensorKey) {
-  if (simInterval) stopSim(); // reinicia
-  currentSensor = sensorKey || currentSensor;
-  if (!currentSensor) return;
-  tick();
-  simInterval = setInterval(tick, 2000);
+async function toggleTenderState() {
+    const currentState = toggleTenderBtn.dataset.state === 'extend';
+    const newState = !currentState;
+    await sendActuatorCommand('tender', `state=${newState ? 'extend' : 'retract'}`, newState);
 }
 
-function stopSim() {
-  clearInterval(simInterval);
-  simInterval = null;
+async function sendActuatorCommand(actuator, params, newState) {
+    const apiBase = apiBaseUrlInput.value.trim();
+    if (!apiBase) {
+        alert('Conéctate a la API antes de controlar los actuadores.');
+        return;
+    }
+    try {
+        const url = `${apiBase.replace(/\/$/, '')}/${actuator}?${params}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) {
+            throw new Error(`Error al cambiar el estado: ${response.status}`);
+        }
+        const result = await response.json();
+        console.log(`${actuator} update:`, result);
+        updateDashboard(result);
+    } catch (error) {
+        console.error(`Error al controlar ${actuator}:`, error);
+        alert(`Error al intentar cambiar el estado de ${actuator}.`);
+    }
 }
 
-async function tick() {
-  const ts = new Date();
-  if (currentSensor === "dht") {
-    const temp = +(20 + Math.random() * 10).toFixed(1);
-    const hum = +(40 + Math.random() * 30).toFixed(0);
-    pushData("dht", { time: ts, temp, hum });
-    simReadouts.dht.textContent = `🌡️ ${temp} °C | 💧 ${hum} %`;
-    tTemp.textContent = `${temp} °C`;
-    tHum.textContent = `${hum} %`;
-    liveAppendToChart("dht", ts, { temp, hum });
-  } else if (currentSensor === "gas") {
-    const gas = +(300 + Math.random() * 600).toFixed(0);
-    pushData("gas", { time: ts, gas });
-    simReadouts.gas.textContent = `🧪 Gas: ${gas} ppm`;
-    tGas.textContent = `${gas} ppm`;
-    liveAppendToChart("gas", ts, { gas });
-  } else if (currentSensor === "water") {
-    const water = +((Math.random() * 100)).toFixed(0);
-    pushData("water", { time: ts, water });
-    simReadouts.water.textContent = `💧 Nivel de agua: ${water} %`;
-    tWater.textContent = `${water} %`;
-    liveAppendToChart("water", ts, { water });
-  } else if (currentSensor === "motion") {
-    // 🚨 Aquí datos reales del PIR desde el ESP32
-    const realData = await getRealSensorData();
-    const motion = realData.motion;
-    pushData("motion", { time: ts, motion });
-    simReadouts.motion.textContent = motion ? "👤 ¡Movimiento detectado!" : "Sin movimiento";
-    motionLed.classList.toggle("on", motion);
-    motionLabel.textContent = motion ? "Detectado" : "Sin detección";
-    tMotion.textContent = motion ? "Detectado" : "Sin detección";
-    tLed.classList.toggle("on", motion);
-    liveAppendToChart("motion", ts, { motion: motion ? 1 : 0 });
-  }
+// Lógica de confirmación
+function showConfirmation(event) {
+    const targetBtn = event.currentTarget;
+    const actionName = targetBtn.textContent.trim();
+    document.getElementById('modal-message').textContent = `¿Seguro que deseas "${actionName}"?`;
+    confirmModal.classList.remove('hidden');
+
+    return new Promise((resolve, reject) => {
+        const okHandler = () => {
+            confirmModal.classList.add('hidden');
+            resolve(true);
+            removeListeners();
+        };
+        const cancelHandler = () => {
+            confirmModal.classList.add('hidden');
+            resolve(false);
+            removeListeners();
+        };
+        const removeListeners = () => {
+            confirmOkBtn.removeEventListener('click', okHandler);
+            confirmCancelBtn.removeEventListener('click', cancelHandler);
+        };
+        confirmOkBtn.addEventListener('click', okHandler);
+        confirmCancelBtn.addEventListener('click', cancelHandler);
+    });
 }
 
-function pushData(key, obj) {
-  const list = store[key].data;
-  list.push(obj);
-  if (list.length > MAX_POINTS) list.shift();
+// Actualizar la interfaz con los datos
+function updateDashboard(data) {
+    tileTemp.textContent = `${data.temp !== undefined ? data.temp.toFixed(1) : '--'} °C`;
+    tileHum.textContent = `${data.hum !== undefined ? data.hum.toFixed(0) : '--'} %`;
+    tileRain.textContent = data.rain ? 'LLUVIENDO' : 'SECO';
+    tileGas.textContent = `${data.gas !== undefined ? data.gas.toFixed(0) : '--'} ppm`;
+    tileMotion.textContent = data.motion ? '¡DETECTADO!' : 'Sin detección';
+    
+    updateLedDisplay(data.led_state);
+    updateActuatorDisplay(toggleDoorBtn, data.door_state, 'open', 'close', 'ABIERTA', 'CERRADA');
+    updateActuatorDisplay(toggleTenderBtn, data.tender_state, 'extend', 'retract', 'EXTENDIDO', 'RETRAÍDO');
 }
 
-function clearData(key) {
-  store[key].data = [];
-  const ro = simReadouts[key];
-  if (ro) ro.textContent = "Datos eliminados.";
+function updateLedDisplay(ledState) {
+    ledIndicatorEl.classList.toggle('on', ledState);
+    tileLed.textContent = ledState ? 'ENCENDIDO' : 'APAGADO';
+    toggleLedBtn.textContent = ledState ? 'Apagar' : 'Encender';
+    toggleLedBtn.dataset.state = ledState ? 'on' : 'off';
+    
+    if (ledState) {
+        toggleLedBtn.classList.remove('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
+        toggleLedBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
+    } else {
+        toggleLedBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'text-white');
+        toggleLedBtn.classList.add('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
+    }
 }
 
-function saveJSON(key) {
-  const data = store[key].data.map(r => ({
-    time: (r.time instanceof Date ? r.time.toISOString() : r.time),
-    ...Object.fromEntries(Object.entries(r).filter(([k]) => k !== "time"))
-  }));
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const stamp = new Date().toISOString().replaceAll(":", "-");
-  a.href = url;
-  a.download = `${key}_data_${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+function updateActuatorDisplay(btn, state, onValue, offValue, onText, offText) {
+    const tileTextEl = btn.previousElementSibling;
+    tileTextEl.textContent = state ? onText : offText;
+    btn.textContent = state ? `Retraer` : `Extender`;
+    btn.dataset.state = state ? onValue : offValue;
+    
+    if (state) {
+        btn.classList.remove('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
+        btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'text-white');
+    } else {
+        btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'text-white');
+        btn.classList.add('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-200');
+    }
 }
 
-// ======== GRÁFICAS =========
+function updateStatus(message, className) {
+    statusMessageEl.className = `mt-3 text-sm font-medium ${className}`;
+    statusMessageEl.textContent = message;
+}
+
+function appendDataToStore(data) {
+    const now = new Date();
+    pushData('dht-temp-hum', { time: now, temp: data.temp, hum: data.hum });
+    pushData('rain', { time: now, value: data.rain ? 1 : 0 });
+    pushData('gas', { time: now, value: data.gas });
+    pushData('motion', { time: now, value: data.motion ? 1 : 0 });
+    pushData('led', { time: now, value: data.led_state ? 1 : 0 });
+    pushData('door', { time: now, value: data.door_state ? 1 : 0 });
+    pushData('tender', { time: now, value: data.tender_state ? 1 : 0 });
+}
+
+function pushData(key, data) {
+    if (!store[key]) return;
+    const list = store[key].data;
+    list.push(data);
+    if (list.length > MAX_POINTS) {
+        list.shift();
+    }
+}
+
+// Lógica de gráficas
+function getChartConfig(sensorKey) {
+    if (sensorKey === 'dht-temp-hum') {
+        return {
+            datasets: [
+                {
+                    label: store[sensorKey].labels[0],
+                    data: store[sensorKey].data.map(d => d.temp),
+                    yAxisID: 'yTemp',
+                    borderColor: store[sensorKey].colors[0],
+                    backgroundColor: 'rgba(249, 115, 22, 0.1)'
+                },
+                {
+                    label: store[sensorKey].labels[1],
+                    data: store[sensorKey].data.map(d => d.hum),
+                    yAxisID: 'yHum',
+                    borderColor: store[sensorKey].colors[1],
+                    backgroundColor: 'rgba(6, 182, 212, 0.1)'
+                }
+            ],
+            labels: store[sensorKey].data.map(d => formatTime(d.time))
+        };
+    }
+
+    const sensorData = store[sensorKey];
+    return {
+        datasets: [{
+            label: sensorData.label,
+            data: sensorData.data.map(d => d.value),
+            borderColor: sensorData.color,
+            backgroundColor: sensorData.color.replace(')', ', 0.1)').replace('rgb', 'rgba'),
+            stepped: sensorData.stepped || false,
+            tension: sensorData.stepped ? 0 : 0.25,
+            borderWidth: 2,
+            fill: true
+        }],
+        labels: sensorData.data.map(d => formatTime(d.time))
+    };
+}
+
 function openChart(sensorKey) {
-  chartTitle.textContent = `Gráfica - ${store[sensorKey].label}`;
-  buildChart(sensorKey);
-  chartModal.classList.remove("hidden");
+    currentChartKey = sensorKey;
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+    const config = getChartConfig(sensorKey);
+    chartTitleEl.textContent = `Gráfica de ${store[sensorKey].label} en Tiempo Real`;
+    
+    const scalesConfig = (sensorKey === 'dht-temp-hum') ? {
+        yTemp: {
+            type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)', color: 'var(--acc-temp)' },
+            min: 10, max: 40, ticks: { color: 'var(--acc-temp)' }
+        },
+        yHum: {
+            type: 'linear', position: 'right', title: { display: true, text: 'Humedad (%)', color: 'var(--acc-water)' },
+            min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: 'var(--acc-water)' }
+        }
+    } : {
+        y: { beginAtZero: true, title: { display: true, text: store[sensorKey].label } }
+    };
+    
+    chartInstance = new Chart(chartCanvas, {
+        type: 'line',
+        data: {
+            labels: config.labels,
+            datasets: config.datasets.map(ds => ({
+                ...ds, pointBackgroundColor: ds.borderColor, pointBorderColor: '#fff', pointBorderWidth: 2,
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                x: { ticks: { autoSkip: true, maxTicksLimit: 10 }, title: { display: true, text: "Tiempo" } },
+                ...scalesConfig
+            },
+            color: (context) => htmlEl.classList.contains('dark') ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)'
+        }
+    });
+    chartSection.classList.remove('hidden');
+    setTimeout(() => chartInstance.resize(), 100);
 }
 
 function closeChart() {
-  destroyChart();
-  chartModal.classList.add("hidden");
-}
-
-function buildChart(sensorKey) {
-  destroyChart();
-  const data = store[sensorKey].data;
-  const labels = data.map(d => formatTime(d.time));
-  let datasets = [];
-  if (sensorKey === "dht") {
-    datasets = [
-      {
-        label: "Temperatura (°C)", data: data.map(d => d.temp ?? null),
-        borderColor: "#f97316", backgroundColor: "rgba(249,115,22,.2)", borderWidth: 2, tension: 0.25
-      },
-      {
-        label: "Humedad (%)", data: data.map(d => d.hum ?? null),
-        borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,.2)", borderWidth: 2, tension: 0.25
-      }
-    ];
-  } else if (sensorKey === "gas") {
-    datasets = [{
-      label: "Gas (ppm)", data: data.map(d => d.gas ?? null),
-      borderColor: "#ef4444", backgroundColor: "rgba(239,68,68,.2)", borderWidth: 2, tension: 0.25
-    }];
-  } else if (sensorKey === "water") {
-    datasets = [{
-      label: "Agua (%)", data: data.map(d => d.water ?? null),
-      borderColor: "#06b6d4", backgroundColor: "rgba(6,182,212,.2)", borderWidth: 2, tension: 0.25
-    }];
-  } else if (sensorKey === "motion") {
-    datasets = [{
-      label: "Movimiento (0/1)",
-      data: data.map(d => (typeof d.motion === "number" ? d.motion : (d.motion ? 1 : 0))),
-      borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,.2)", borderWidth: 2, stepped: true
-    }];
-  }
-  chart = new Chart(chartCanvas.getContext("2d"), {
-    type: "line",
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      animation: false,
-      plugins: { legend: { position: "top" } },
-      scales: {
-        x: { ticks: { autoSkip: true, maxTicksLimit: 8 }, title: { display: true, text: "Tiempo" } },
-        y: { beginAtZero: true }
-      }
+    if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
     }
-  });
-  chart.__sensorKey = sensorKey;
+    currentChartKey = null;
+    chartSection.classList.add('hidden');
 }
 
-function liveAppendToChart(sensorKey, ts, values) {
-  if (!chart || chart.__sensorKey !== sensorKey) return;
-  const label = formatTime(ts);
-  if (chart.data.labels.length >= MAX_POINTS) {
-    chart.data.labels.shift();
-    chart.data.datasets.forEach(ds => ds.data.shift());
-  }
-  chart.data.labels.push(label);
-  if (sensorKey === "dht") {
-    chart.data.datasets[0].data.push(values.temp);
-    chart.data.datasets[1].data.push(values.hum);
-  } else if (sensorKey === "gas") {
-    chart.data.datasets[0].data.push(values.gas);
-  } else if (sensorKey === "water") {
-    chart.data.datasets[0].data.push(values.water);
-  } else if (sensorKey === "motion") {
-    chart.data.datasets[0].data.push(values.motion);
-  }
-  chart.update();
+function liveAppendToChart(data) {
+    if (!chartInstance || !currentChartKey) return;
+    const now = new Date();
+    const label = formatTime(now);
+    if (chartInstance.data.labels.length >= MAX_POINTS) {
+        chartInstance.data.labels.shift();
+        chartInstance.data.datasets.forEach(ds => ds.data.shift());
+    }
+    chartInstance.data.labels.push(label);
+    
+    if (currentChartKey === 'dht-temp-hum') {
+        chartInstance.data.datasets[0].data.push(data.temp);
+        chartInstance.data.datasets[1].data.push(data.hum);
+    } else if (currentChartKey === 'rain') {
+        chartInstance.data.datasets[0].data.push(data.rain ? 1 : 0);
+    } else if (currentChartKey === 'gas') {
+        chartInstance.data.datasets[0].data.push(data.gas);
+    } else if (currentChartKey === 'motion') {
+        chartInstance.data.datasets[0].data.push(data.motion ? 1 : 0);
+    } else if (currentChartKey === 'led') {
+        chartInstance.data.datasets[0].data.push(data.led_state ? 1 : 0);
+    } else if (currentChartKey === 'door') {
+        chartInstance.data.datasets[0].data.push(data.door_state ? 1 : 0);
+    } else if (currentChartKey === 'tender') {
+        chartInstance.data.datasets[0].data.push(data.tender_state ? 1 : 0);
+    }
+    chartInstance.update('none');
 }
 
-function destroyChart() {
-  if (chart) {
-    chart.destroy();
-    chart = null;
-  }
-}
-
-function downloadChartPNG() {
-  if (!chart) return;
-  const url = chart.toBase64Image("image/png", 1.0);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "grafica.png";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
-
-// ======== HELPERS =========
 function formatTime(t) {
-  const d = (t instanceof Date) ? t : new Date(t);
-  return d.toLocaleTimeString();
+    const d = (t instanceof Date) ? t : new Date(t);
+    return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
+
+function startFetching() {
+    if (fetchInterval) clearInterval(fetchInterval);
+    fetchInterval = setInterval(fetchData, 4000);
+    fetchData();
+}
+
+function stopFetching() {
+    if (fetchInterval) {
+        clearInterval(fetchInterval);
+        fetchInterval = null;
+    }
+    updateStatus('Desconectado. Pulsa Conectar para reanudar.', 'text-gray-500 dark:text-gray-400');
+}
+
+// Event Listeners
+connectBtn.addEventListener('click', () => {
+    saveApiUrl();
+    startFetching();
+});
+
+document.querySelectorAll('[data-actuator]').forEach(el => {
+    const btn = el.querySelector('button');
+    btn.addEventListener('click', async (e) => {
+        if (e.currentTarget.dataset.confirm === 'true') {
+            const confirmed = await showConfirmation(e);
+            if (confirmed) {
+                const actuator = el.dataset.actuator;
+                if (actuator === 'led') toggleLedState();
+                if (actuator === 'door') toggleDoorState();
+                if (actuator === 'tender') toggleTenderState();
+            }
+        }
+    });
+});
+
+document.querySelectorAll('[data-sensor], [data-actuator]').forEach(el => {
+    const sensorKey = el.dataset.sensor || el.dataset.actuator;
+    el.addEventListener('click', (e) => {
+        // Ignorar clicks en el botón del actuador
+        if (e.target.closest('button')) return;
+        if (currentChartKey === sensorKey) {
+            closeChart();
+        } else {
+            openChart(sensorKey);
+        }
+    });
+});
+
+closeChartBtn.addEventListener('click', closeChart);
+
+themeToggle.addEventListener('click', () => {
+    htmlEl.classList.toggle('dark');
+    localStorage.setItem('theme', htmlEl.classList.contains('dark') ? 'dark' : 'light');
+});
+
+// Inicialización
+window.onload = function() {
+    const savedUrl = localStorage.getItem('apiBaseUrl');
+    if (savedUrl) {
+        apiBaseUrlInput.value = savedUrl;
+    }
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        htmlEl.classList.add('dark');
+    } else {
+        htmlEl.classList.remove('dark');
+    }
+    if (apiBaseUrlInput.value.trim()) {
+        startFetching();
+    }
+};
